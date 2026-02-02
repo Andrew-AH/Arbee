@@ -1,0 +1,129 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "AWS CloudFormation Template: Arbee Resources"
+
+Parameters:
+  ######################## DATABASE ########################
+  DBName:
+    Type: String
+    Description: The database name
+
+  DBUser:
+    Type: String
+    Description: The database admin account username
+
+  DBPassword:
+    Type: String
+    NoEcho: true
+    Description: The database admin account password
+
+  DBInstanceClass:
+    Type: String
+    Description: The database instance type
+    Default: db.t3.micro
+
+  DBAllocatedStorage:
+    Type: String
+    Default: "15"
+    Description: The size of the database (GB)
+
+  ######################## NETWORK ########################
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: Select the VPC for both RDS and bastion
+
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: A subnet (preferably private) for RDS and bastion
+
+  ######################## BASTION HOST ########################
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+    Description: Amazon Linux 2 AMI with SSM Agent pre-installed
+
+  BastionInstanceType:
+    Type: String
+    Default: t2.micro
+    Description: EC2 instance type (Free Tier–eligible)
+
+Resources:
+  ######################## SECURITY GROUPS ########################
+  BastionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: SSM bastion host SG (default allows all outbound)
+      VpcId: !Ref VpcId
+
+  DBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow PostgreSQL access from bastion
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref BastionSecurityGroup
+
+  ######################## IAM ROLE FOR BASTION HOST ########################
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref InstanceRole
+
+  ######################## RDS INSTANCE ########################
+  DBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBName: !Ref DBName
+      AllocatedStorage: !Ref DBAllocatedStorage
+      DBInstanceClass: !Ref DBInstanceClass
+      Engine: postgres
+      MasterUsername: !Ref DBUser
+      MasterUserPassword: !Ref DBPassword
+      BackupRetentionPeriod: 7
+      MultiAZ: false
+      EngineVersion: "15"
+      StorageType: gp2
+      PubliclyAccessible: false
+      VPCSecurityGroups:
+        - !GetAtt DBSecurityGroup.GroupId
+
+  ######################## SSM-MANAGED BASTION HOST ########################
+  SSMBastionInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: !Ref BastionInstanceType
+      SubnetId: !Ref SubnetId
+      SecurityGroupIds:
+        - !Ref BastionSecurityGroup
+      IamInstanceProfile: !Ref InstanceProfile
+      Tags:
+        - Key: Name
+          Value: "SSM-Bastion"
+
+Outputs:
+  DBEndpointAddress:
+    Description: The RDS endpoint address
+    Value: !GetAtt DBInstance.Endpoint.Address
+  DBEndpointPort:
+    Description: The RDS endpoint port
+    Value: !GetAtt DBInstance.Endpoint.Port
+  BastionInstanceId:
+    Description: The EC2 instance ID of the SSM bastion
+    Value: !Ref SSMBastionInstance
