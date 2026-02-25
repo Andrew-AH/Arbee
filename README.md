@@ -39,10 +39,6 @@ Arbee is a distributed system designed to detect and execute price arbitrage opp
 
 ## Architecture
 
-<p align="center">
-  <img src="./docs/images/architecture.svg" alt="Architecture Diagram">
-</p>
-
 Arbee implements the [Publisher-Subscriber pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/publisher-subscriber) with two main components:
 
 ### Cloubee (Publisher)
